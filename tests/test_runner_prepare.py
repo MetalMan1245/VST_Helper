@@ -27,3 +27,10 @@ def test_umu_without_umu_path_is_rejected():
         pass
     else:
         raise AssertionError("expected ConfigError for missing umu_path")
+
+def test_prepare_inherits_ambient_environment(monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":99")
+    r = Runner(name="w", path=Path("/x/bin/wine"))
+    _, env = r.prepare(["gui.exe"])
+    assert env["DISPLAY"] == ":99"
+    assert env["WINELOADER"] == "/x/bin/wine"   # override still applied

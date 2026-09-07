@@ -1,0 +1,261 @@
+PROJECT: VST Helper (~/Dev/VST_Helper, git, all-TOML config, PyQt6 planned)
+STACK: Python 3.14.7, venv, pytest (fast suite excludes @integration marks)
+MODULES DONE (all committed, green):
+- config.py: Runner(kind=WINE|UMU, prepare() choke-point for argv+env),
+  Prefix, Plugin dataclasses; TOML load/save w/ schema_version, group⇒prefix invariant
+- discovery.py: runner discovery (Heroic/Lutris/Bottles roots + PATH)
+- prefix_manager.py: create_prefix (mkdir first, WINEDLLOVERRIDES=mscoree,mshtml=),
+  run_winetricks, shutdown_prefix, delete_prefix — integration-tested vs real Wine
+- plugin_installer.py: install_portable, find_installed_plugins,
+  install_from_installer, add_sync_targets (NEEDS FIX: use positional
+  `yabridgectl add <path>`, not --path=), sync_yabridge (bare `sync`, correct)
+PENDING FIXES:
+1. plugin_installer.py: add_sync_targets passes f"--path={path}" → must be str(path) positional
+2. scripts/manual_installer_test.py: Before-line wrongly calls add_sync_targets(pfx,"vst3")
+   instead of find_installed_plugins(pfx, "vst3"); sync calls need new two-step API
+REMAINING WORK: verify .so assertions pass for vst3+vst2 integration tests;
+yabridge.toml generator; REAPER .desktop override; known-fixes manifest (TOML);
+GUI (PyQt6, QThread workers); installer script
+CONVENTIONS: full-file replacements when >2 lines change; always name files per fix;
+tests in tests/ + tests/integration/, assets in test-assets/ (gitignored)
+
+tree:
+~/Dev/VST_Helper main* 8s
+❯ tree
+.
+├── LICENSE
+├── pyproject.toml
+├── README.md
+├── scripts
+│   └── manual_installer_test.py
+├── test-assets
+│   ├── Circvit Bass.vst3
+│   ├── FenrirMini.exe
+│   ├── pitchproof-x64.dll
+│   └── Reverb.vst3
+├── tests
+│   ├── __init__.py
+│   ├── integration
+│   │   ├── conftest.py
+│   │   ├── __pycache__
+│   │   │   ├── conftest.cpython-314-pytest-9.1.1.pyc
+│   │   │   ├── test_plugin_integration.cpython-314-pytest-9.1.1.pyc
+│   │   │   └── test_prefix_integration.cpython-314-pytest-9.1.1.pyc
+│   │   ├── test_plugin_integration.py
+│   │   └── test_prefix_integration.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-314.pyc
+│   │   ├── test_config.cpython-314-pytest-9.1.0.pyc
+│   │   ├── test_config.cpython-314-pytest-9.1.1.pyc
+│   │   ├── test_discovery.cpython-314-pytest-9.1.1.pyc
+│   │   ├── test_plugin_installer.cpython-314-pytest-9.1.1.pyc
+│   │   ├── test_prefix_manager.cpython-314-pytest-9.1.1.pyc
+│   │   └── test_runner_prepare.cpython-314-pytest-9.1.1.pyc
+│   ├── test_config.py
+│   ├── test_discovery.py
+│   ├── test_plugin_installer.py
+│   ├── test_prefix_manager.py
+│   └── test_runner_prepare.py
+├── vst_helper
+│   ├── config.py
+│   ├── discovery.py
+│   ├── generators.py
+│   ├── __init__.py
+│   ├── plugin_installer.py
+│   ├── prefix_manager.py
+│   └── __pycache__
+│       ├── config.cpython-314.pyc
+│       ├── discovery.cpython-314.pyc
+│       ├── __init__.cpython-314.pyc
+│       ├── plugin_installer.cpython-314.pyc
+│       └── prefix_manager.cpython-314.pyc
+└── vst_helper.egg-info
+    ├── dependency_links.txt
+    ├── PKG-INFO
+    ├── requires.txt
+    ├── SOURCES.txt
+    └── top_level.txt
+
+10 directories, 43 files
+
+Pytest output:
+~/Dev/VST_Helper main* 12s
+.venv ❯ python -m pytest -v
+===================================================== test session starts ======================================================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /home/f/Dev/VST_Helper/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/f/Dev/VST_Helper
+configfile: pyproject.toml
+testpaths: tests
+collected 27 items / 3 deselected / 24 selected
+
+tests/test_config.py::test_roundtrip_preserves_everything PASSED                                                         [  4%]
+tests/test_config.py::test_load_on_empty_dir_gives_valid_empty_config PASSED                                             [  8%]
+tests/test_config.py::test_unknown_prefix_reference_is_rejected PASSED                                                   [ 12%]
+tests/test_config.py::test_group_spanning_prefixes_is_rejected PASSED                                                    [ 16%]
+tests/test_config.py::test_future_schema_refuses_to_load PASSED                                                          [ 20%]
+tests/test_config.py::test_adopted_prefix_keeps_explicit_path PASSED                                                     [ 25%]
+tests/test_config.py::test_save_creates_all_four_files PASSED                                                            [ 29%]
+tests/test_config.py::test_runner_kind_and_umu_path_survive_roundtrip PASSED                                             [ 33%]
+tests/test_config.py::test_skips_nonexistent_wine_gracefully PASSED                                                      [ 37%]
+tests/test_discovery.py::test_discovers_heroic_shaped_install PASSED                                                     [ 41%]
+tests/test_discovery.py::test_skips_broken_wine_without_failing PASSED                                                   [ 45%]
+tests/test_discovery.py::test_ignores_directories_without_a_wine_binary PASSED                                           [ 50%]
+tests/test_discovery.py::test_missing_search_root_is_harmless PASSED                                                     [ 54%]
+tests/test_plugin_installer.py::test_portable_vst3_bundle_copies_into_prefix PASSED                                      [ 58%]
+tests/test_plugin_installer.py::test_find_detects_installed_vst3 PASSED                                                  [ 62%]
+tests/test_plugin_installer.py::test_portable_rejects_unknown_format PASSED                                              [ 66%]
+tests/test_plugin_installer.py::test_portable_rejects_missing_source PASSED                                              [ 70%]
+tests/test_plugin_installer.py::test_overwrite_replaces_old_bundle PASSED                                                [ 75%]
+tests/test_prefix_manager.py::test_create_refuses_existing_non_prefix_dir PASSED                                         [ 79%]
+tests/test_prefix_manager.py::test_delete_refuses_non_prefix PASSED                                                      [ 83%]
+tests/test_runner_prepare.py::test_plain_wine_prepares_loader_and_path_pair PASSED                                       [ 87%]
+tests/test_runner_prepare.py::test_umu_runner_passes_wine_via_env PASSED                                                 [ 91%]
+tests/test_runner_prepare.py::test_umu_without_umu_path_is_rejected PASSED                                               [ 95%]
+tests/test_runner_prepare.py::test_prepare_inherits_ambient_environment PASSED                                           [100%]
+
+=============================================== 24 passed, 3 deselected in 0.10s ===============================================
+
+~/Dev/VST_Helper main*
+.venv ❯ python -m pytest -m integration -v
+===================================================== test session starts ======================================================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /home/f/Dev/VST_Helper/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/f/Dev/VST_Helper
+configfile: pyproject.toml
+testpaths: tests
+collected 27 items / 24 deselected / 3 selected
+
+tests/integration/test_plugin_integration.py::test_portable_vst3s_install_and_sync FAILED                                [ 33%]
+tests/integration/test_plugin_integration.py::test_portable_vst2_dll_install_and_sync FAILED                             [ 66%]
+tests/integration/test_prefix_integration.py::test_full_lifecycle PASSED                                                 [100%]
+
+=========================================================== FAILURES ===========================================================
+_____________________________________________ test_portable_vst3s_install_and_sync _____________________________________________
+
+runner = Runner(name='integration', path=PosixPath('/home/f/.config/heroic/tools/wine/wine-9.21-staging-tkg-amd64/bin/wine'), kind=<RunnerKind.WINE: 'wine'>, umu_path=None)
+
+    @pytest.mark.integration
+    def test_portable_vst3s_install_and_sync(runner):
+        if shutil.which("yabridgectl") is None:
+            pytest.skip("yabridgectl not installed")
+        assets = sorted(ASSETS.glob("*.vst3"))
+        if not assets:
+            pytest.skip("no .vst3 assets in test-assets/")
+
+        pfx = TEST_ROOT / "plugin-pfx"
+        try:
+            create_prefix(runner, pfx)
+            for src in assets:
+                install_portable(runner, pfx, src, "vst3")
+            found = find_installed_plugins(pfx, "vst3")
+            assert {p.name for p in found} == {p.name for p in assets}, \
+                "not all vst3 assets landed in the prefix"
+
+>           add_sync_targets(runner, [pfx])
+
+tests/integration/test_plugin_integration.py:47:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+runner = Runner(name='integration', path=PosixPath('/home/f/.config/heroic/tools/wine/wine-9.21-staging-tkg-amd64/bin/wine'), kind=<RunnerKind.WINE: 'wine'>, umu_path=None)
+paths = [PosixPath('/home/f/.local/share/vst-helper-test/plugin-pfx')], timeout = 120
+
+    def add_sync_targets(runner: Runner, paths: list[Path],
+                         timeout: int = 120) -> None:
+        """Register plugin directories with yabridgectl (`add --path=`).
+
+        Idempotent — re-adding a known directory is a no-op in yabridgectl,
+        so this is safe to call on every sync flow.
+        """
+        if shutil.which("yabridgectl") is None:
+            raise InstallError("yabridgectl is not installed")
+
+        argv, env = runner.prepare([], prefix=None)  # env only: loader + PATH
+        argv[0] = shutil.which("yabridgectl")        # type: ignore[assignment]
+        for path in paths:
+            result = subprocess.run([*argv, "add", f"--path={path}"], env=env,
+                                    capture_output=True, text=True, timeout=timeout)
+            if result.returncode != 0:
+>               raise InstallError(
+                    f"yabridgectl add --path={path} failed: "
+                    f"{result.stderr.strip()[:500]}"
+                )
+E               vst_helper.plugin_installer.InstallError: yabridgectl add --path=/home/f/.local/share/vst-helper-test/plugin-pfx failed: error: unexpected argument '--path' found
+E
+E                 tip: to pass '--path' as a value, use '-- --path'
+E
+E               Usage: yabridgectl add <path>
+E
+E               For more information, try '--help'.
+
+vst_helper/plugin_installer.py:115: InstallError
+___________________________________________ test_portable_vst2_dll_install_and_sync ____________________________________________
+
+runner = Runner(name='integration', path=PosixPath('/home/f/.config/heroic/tools/wine/wine-9.21-staging-tkg-amd64/bin/wine'), kind=<RunnerKind.WINE: 'wine'>, umu_path=None)
+
+    @pytest.mark.integration
+    def test_portable_vst2_dll_install_and_sync(runner):
+        dlls = sorted(ASSETS.glob("*.dll"))
+        if shutil.which("yabridgectl") is None:
+            pytest.skip("yabridgectl not installed")
+        if not dlls:
+            pytest.skip("no .dll assets in test-assets")
+
+        pfx = TEST_ROOT / "vst2-pfx"
+        try:
+            create_prefix(runner, pfx)
+            install_portable(runner, pfx, dlls[0], "vst2")
+            assert find_installed_plugins(pfx, "vst2"), "dll not present after install"
+
+>           add_sync_targets(runner, [pfx])
+
+tests/integration/test_plugin_integration.py:69:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+runner = Runner(name='integration', path=PosixPath('/home/f/.config/heroic/tools/wine/wine-9.21-staging-tkg-amd64/bin/wine'), kind=<RunnerKind.WINE: 'wine'>, umu_path=None)
+paths = [PosixPath('/home/f/.local/share/vst-helper-test/vst2-pfx')], timeout = 120
+
+    def add_sync_targets(runner: Runner, paths: list[Path],
+                         timeout: int = 120) -> None:
+        """Register plugin directories with yabridgectl (`add --path=`).
+
+        Idempotent — re-adding a known directory is a no-op in yabridgectl,
+        so this is safe to call on every sync flow.
+        """
+        if shutil.which("yabridgectl") is None:
+            raise InstallError("yabridgectl is not installed")
+
+        argv, env = runner.prepare([], prefix=None)  # env only: loader + PATH
+        argv[0] = shutil.which("yabridgectl")        # type: ignore[assignment]
+        for path in paths:
+            result = subprocess.run([*argv, "add", f"--path={path}"], env=env,
+                                    capture_output=True, text=True, timeout=timeout)
+            if result.returncode != 0:
+>               raise InstallError(
+                    f"yabridgectl add --path={path} failed: "
+                    f"{result.stderr.strip()[:500]}"
+                )
+E               vst_helper.plugin_installer.InstallError: yabridgectl add --path=/home/f/.local/share/vst-helper-test/vst2-pfx failed: error: unexpected argument '--path' found
+E
+E                 tip: to pass '--path' as a value, use '-- --path'
+E
+E               Usage: yabridgectl add <path>
+E
+E               For more information, try '--help'.
+
+vst_helper/plugin_installer.py:115: InstallError
+=================================================== short test summary info ====================================================
+FAILED tests/integration/test_plugin_integration.py::test_portable_vst3s_install_and_sync - vst_helper.plugin_installer.InstallError: yabridgectl add --path=/home/f/.local/share/vst-helper-test/plugin-pfx failed: er...
+FAILED tests/integration/test_plugin_integration.py::test_portable_vst2_dll_install_and_sync - vst_helper.plugin_installer.InstallError: yabridgectl add --path=/home/f/.local/share/vst-helper-test/vst2-pfx failed: erro...
+==================================== 2 failed, 1 passed, 24 deselected in 104.71s (0:01:44) ====================================
+
+~/Dev/VST_Helper main* 1m 45s
+.venv ❯ .venv/bin/python scripts/manual_installer_test.py
+Traceback (most recent call last):
+  File "/home/f/Dev/VST_Helper/scripts/manual_installer_test.py", line 17, in <module>
+    print("Before:", [p.name for p in add_sync_targets(pfx, "vst3")] if pfx.exists() else "(no prefix)")
+                                      ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/home/f/Dev/VST_Helper/vst_helper/plugin_installer.py", line 109, in add_sync_targets
+    argv, env = runner.prepare([], prefix=None)  # env only: loader + PATH
+                ^^^^^^^^^^^^^^
+AttributeError: 'PosixPath' object has no attribute 'prepare'

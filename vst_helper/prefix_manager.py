@@ -38,7 +38,11 @@ def create_prefix(runner: Runner, path: Path, timeout: int = 120) -> Path:
     # including parents (a first-ever run has no TEST_PREFIX_ROOT either)
     path.mkdir(parents=True, exist_ok=True)
 
+    # inside create_prefix(), replacing the current subprocess.run call:
     argv, env = runner.prepare(["wineboot", "-u"], prefix=path)
+    # Suppress the Mono/Gecko install prompts so first boot can't stall
+    # waiting for a dialog — essential for unattended/GUI-less contexts
+    env["WINEDLLOVERRIDES"] = "mscoree,mshtml="
     result = subprocess.run(argv, env=env, capture_output=True, text=True,
                             timeout=timeout)
 

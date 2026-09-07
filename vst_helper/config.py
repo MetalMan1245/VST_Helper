@@ -73,12 +73,14 @@ class Runner:
     def prepare(self, args: list[str], prefix: Path | None = None) -> tuple[list[str], dict[str, str]]:
         """Build (argv, env) to run `args` under this runner inside `prefix`.
 
-        This is THE single choke point every other module calls through —
-        prefix creation, winetricks, regedit, plugin installers, the DAW
-        .desktop generator. Keeping the WINELOADER+PATH pair assembly here
-        makes the version-mismatch bug structurally impossible to reintroduce.
+        The env INHERITS the caller's environment (DISPLAY, WAYLAND_DISPLAY,
+        HOME, ...) and layers the runner-specific overrides on top — never
+        the reverse. GUI processes (plugin installers) die without a
+        display server, which is exactly what wholesale env replacement
+        causes.
         """
-        env: dict[str, str] = {}
+        env = dict(os.environ)
+
         if prefix is not None:
             env["WINEPREFIX"] = str(prefix)
 
@@ -86,12 +88,11 @@ class Runner:
             argv = [str(self.path), *args]
             # Both WINELOADER and the sibling bin dir in PATH, always as a pair
             env["WINELOADER"] = str(self.path)
-            env["PATH"] = f"{self.bindir}:{os.environ.get('PATH', '')}"
+            env["PATH"] = f"{self.bindir}:{env.get('PATH', '')}"
         elif self.kind is RunnerKind.UMU:
             if self.umu_path is None:
                 raise ConfigError(f"Runner '{self.name}' is umu-kind but has no umu-run path")
             argv = [str(self.umu_path), *args]
-            # umu-run expects the Proton's wine binary via WINE
             env["WINE"] = str(self.path)
         else:
             raise ConfigError(f"Unknown runner kind: {self.kind}")
