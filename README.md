@@ -1,5 +1,5 @@
 # VST Helper
- An easy way to run Windows VST, CLAP, and LV2 auduo plugins on Linux.
+ An easy way to run Windows VST, CLAP, and LV2 audio plugins on Linux.
 
  This repo is currently just a writeup for something I plan to develop in the future.  If this sounds interesting, feel free to give it a star, or an issue report if something architecturally seems useful, or a pull request if you want to do it yourself!
 
@@ -21,7 +21,10 @@ To use it
  - Application itself allows you to specify where you want your Windows VSTs stored (Linux versions will always go to ~/.vst3, ~/.vst, ~/.clap, or ~/.lv2 respectively, with an option to change these locations) and create a Wine prefix in that location
  - This will also automatically refresh yabridge when installing a new plugin, with a manual refresh in settings
  - A wine runner can also be specified per plugin, as well as specific wine tweaks so that each can be fiddled with to run perfectly.
- - Can also set a WINELOADER environment variable at the DAW level so that said Wine runner will be more likely to be respected instead of falling back to system wine, which is often newer and will not work well with yabridge.
+ - Can also set a WINELOADER environment variable at the DAW level so that said Wine runner will be more likely to be respected instead of falling back to system wine, which is often newer and will not work as well with yabridge.
+ - Apply custom known fixes, such as:
+    - installing dxvk for plugin UI updating
+    - Importing FL Studio key into the registry for manual activation
  
 # Caveats
 Wine is great, and most plugins for Windows will work on Linux, however some just will not, especially those with aggressive license checks, such as iZotope plugins.  It is also difficult to test across distros, most of my testing is done on CachyOS so Arch based distros will have the best results.

@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: vst-helper
+Version: 0.1.0
+Requires-Python: >=3.11
+License-File: LICENSE
+Requires-Dist: PyQt6
+Requires-Dist: tomli-w
+Dynamic: license-file

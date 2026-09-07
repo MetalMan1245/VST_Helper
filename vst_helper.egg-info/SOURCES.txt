@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+tests/test_config.py
+vst_helper/__init__.py
+vst_helper/config.py
+vst_helper/generators.py
+vst_helper.egg-info/PKG-INFO
+vst_helper.egg-info/SOURCES.txt
+vst_helper.egg-info/dependency_links.txt
+vst_helper.egg-info/requires.txt
+vst_helper.egg-info/top_level.txt

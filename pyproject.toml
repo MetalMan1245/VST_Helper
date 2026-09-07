@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vst-helper"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["PyQt6", "tomli-w"]
+
+[tool.setuptools.packages.find]
+include = ["vst_helper*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
