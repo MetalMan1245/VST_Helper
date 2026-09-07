@@ -28,3 +28,14 @@ To use it
  
 # Caveats
 Wine is great, and most plugins for Windows will work on Linux, however some just will not, especially those with aggressive license checks, such as iZotope plugins.  It is also difficult to test across distros, most of my testing is done on CachyOS so Arch based distros will have the best results.
+
+# Testing
+Clone repo, and from project directory:
+
+python -m venv .venv
+.venv/bin/python -m pip install -e .[dev]
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install pytest
+source .venv/bin/activate.fish # (for fish Terminals)
+source .venv/bin/activate 
+python -m pytest -v

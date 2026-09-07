@@ -14,3 +14,5 @@ include = ["vst_helper*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-m 'not integration'"
+markers = ["integration: tests that execute real Wine"]
