@@ -1,0 +1,17 @@
+# vst_helper/known_fixes.toml — per-plugin fixes only.
+# Global fixes (DXVK, winemenubuilder suppression, ...) belong on the
+# prefix itself: Prefix.dxvk / winetricks_verbs / dll_overrides in
+# prefixes.toml. Never add wildcard plugin entries here.
+#
+# Add a fix by copying the entry below into
+# ~/.config/vst-helper/known_fixes.toml (user file wins over this one).
+# fix_type is one of: winetricks | dll_overrides | env
+#
+# [[fix]]
+# id = "example-gui-fix"
+# plugin = "Example Plugin"
+# symptom = "GUI renders black/broken"
+# fix_type = "dll_overrides"
+# overrides = { d2d1 = "native", dwrite = "native" }
+
+schema_version = 1

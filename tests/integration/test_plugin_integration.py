@@ -46,9 +46,12 @@ def test_portable_vst3s_install_and_sync(runner):
 
         add_sync_targets(runner, [pfx])
         sync_yabridge(runner)
-        so_files = list((pfx / "drive_c" / "Program Files" /
-                         "Common Files" / "VST3").rglob("*.so"))
-        assert so_files, "no bridged .so appeared after sync"
+        # Bridged VST3s appear in ~/.vst3/yabridge as <Name>.vst3 chainloader
+        # bundles — same name as the original, never a .so
+        staged = Path("~/.vst3/yabridge").expanduser()
+        staged_names = {p.name for p in staged.glob("*.vst3")}
+        assert {p.name for p in assets} <= staged_names, \
+            f"bridged bundles missing from {staged}: synced={sorted(staged_names)}"
     finally:
         _cleanup(runner, pfx)
 
@@ -68,8 +71,10 @@ def test_portable_vst2_dll_install_and_sync(runner):
 
         add_sync_targets(runner, [pfx])
         sync_yabridge(runner)
-        so_files = list((pfx / "drive_c" / "Program Files" /
-                         "Steinberg" / "VstPlugins").glob("*.so"))
-        assert so_files, "no bridged .so appeared after sync"
+        # Bridged VST2 DLLs become <stem>.so in ~/.vst/yabridge
+        staged = Path("~/.vst/yabridge").expanduser()
+        expected = staged / (dlls[0].stem + ".so")
+        assert expected.exists(), \
+            f"no bridged .so at {expected}; staged={[p.name for p in staged.glob('*')]}"
     finally:
         _cleanup(runner, pfx)
