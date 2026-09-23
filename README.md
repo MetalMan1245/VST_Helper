@@ -1,5 +1,9 @@
 # VST Helper
  An easy way to run Windows VST, CLAP, and LV2 audio plugins on Linux.
+ 
+ WARNING:  While the software does technically work it is absolutely in beta, the UX is unpolished, the flow is not well tested, and I would recommend waiting until the software is ready for public use before deploying it for anything other than curiosity or a desire to help with development, even by submitting a bug report.
+ 
+ When this is further developed this note will disappear and an easy installer will be added.
 
 # Goals
 This project is built on the back of yabridge, which is a great wrapper that allows Windows VSTs to run on Linux, however its interface is CLI only, and while other GUIs exist for it, this project aims to automate installation as well, since yabridge requires Wine to work, and itself needs to be installed which is non-trivial for a non-technical user.  This project bridges that gap.

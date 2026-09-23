@@ -39,7 +39,10 @@ DEFAULT_PREFIX = Path("~/.local/share/vst-helper/prefixes/default").expanduser()
 FIRST_RUN_FLAG = (Path.home() / ".local" / "share" / "vst-helper" / ".first_launch_done")
 
 def resolve_runner() -> Runner | None:
-    """Pick a Wine: system first (per your 11.x preference), then Heroic."""
+    """Pick a Wine: pinned app-managed build, then system, then Heroic."""
+    from .wine_manager import is_pinned_installed, pinned_wine_binary
+    if is_pinned_installed():
+        return Runner(name="pinned", path=pinned_wine_binary())
     system = shutil.which("wine")
     if system:
         return Runner(name="system", path=Path(system))
@@ -458,6 +461,12 @@ class MainWindow(QMainWindow):
         self._log(f"Creating new prefix at {prefix}...")
         try:
             create_prefix(runner, prefix)
+            self._log(f"Created prefix at {prefix}...")
+
+            # Register prefix in config
+            from .config_manager import register_prefix
+            register_prefix(str(prefix), runner.name, dxvk_installed=False)
+            self._log(f"Prefix registered in config.")
         except Exception as e:
             QMessageBox.critical(
                 self, "Prefix Creation Failed",

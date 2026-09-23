@@ -60,8 +60,14 @@ class HealthCheckResult:
 
 
 def check_wine(required_for_operation: bool = False) -> HealthCheckResult:
-    """Check if Wine is available."""
+    """Check if Wine is available (pinned preferred, then fallbacks)."""
+    from .wine_manager import is_pinned_installed, PINNED_VERSION, pinned_wine_binary
+
     wine_binaries = []
+
+    # Check pinned app-managed Wine first
+    if is_pinned_installed():
+        wine_binaries.append(("pinned", str(pinned_wine_binary())))
 
     # Check system Wine
     system_wine = shutil.which("wine")
@@ -81,10 +87,16 @@ def check_wine(required_for_operation: bool = False) -> HealthCheckResult:
         wine_binaries.append(("cachyos", cachyos_wine))
 
     if wine_binaries:
+        # Warn if not using pinned version
+        is_pinned = wine_binaries[0][0] == "pinned"
+        status = HealthStatus.OK if is_pinned else HealthStatus.WARNING
+        message = f"Wine found: {wine_binaries[0][0]} ({wine_binaries[0][1]})"
+        if not is_pinned:
+            message += f" (pinned Wine {PINNED_VERSION} recommended)"
         return HealthCheckResult(
             component="Wine",
-            status=HealthStatus.OK,
-            message=f"Wine found: {wine_binaries[0][0]} ({wine_binaries[0][1]})",
+            status=status,
+            message=message,
             required=False
         )
 
@@ -94,7 +106,6 @@ def check_wine(required_for_operation: bool = False) -> HealthCheckResult:
         message="No Wine installation detected. Windows plugins will not work.",
         required=required_for_operation
     )
-
 
 def check_wine_version(wine_runner: Path, target_version: str = "9.21") -> HealthCheckResult:
     """Check Wine version (best-effort)."""
@@ -129,6 +140,24 @@ def check_wine_version(wine_runner: Path, target_version: str = "9.21") -> Healt
             required=False
         )
 
+def check_pinned_wine() -> HealthCheckResult:
+    """Check if the app-managed Wine 9.21 is installed."""
+    from .wine_manager import is_pinned_installed, PINNED_VERSION, pinned_wine_binary
+
+    if is_pinned_installed():
+        return HealthCheckResult(
+            component="Pinned Wine",
+            status=HealthStatus.OK,
+            message=f"Wine {PINNED_VERSION} installed (recommended for yabridge)",
+            required=False
+        )
+
+    return HealthCheckResult(
+        component="Pinned Wine",
+        status=HealthStatus.WARNING,
+        message=f"Wine {PINNED_VERSION} not installed. Install from Settings → Advanced for consistent yabridge behavior.",
+        required=False
+    )
 
 def check_yabridge() -> HealthCheckResult:
     """Check if yabridge and yabridgectl are installed."""
@@ -222,8 +251,8 @@ def check_realtime_group() -> HealthCheckResult:
             required=False
         )
 
-def check_dxvk(prefix_path: Path) -> HealthCheckResult:
-    """Check if DXVK is installed in a Wine prefix."""
+def check_dxvk(prefix_path: Path, runner_path: Path | None = None) -> HealthCheckResult:
+    """Check if DXVK is installed and ACTIVE in a Wine prefix."""
     if not prefix_path.exists():
         return HealthCheckResult(
             component="DXVK",
@@ -234,18 +263,48 @@ def check_dxvk(prefix_path: Path) -> HealthCheckResult:
 
     dxvk_dll = prefix_path / "drive_c" / "windows" / "system32" / "dxgi.dll"
 
-    if dxvk_dll.exists():
+    if not dxvk_dll.exists():
         return HealthCheckResult(
             component="DXVK",
-            status=HealthStatus.OK,
-            message=f"DXVK installed in {prefix_path.name}",
+            status=HealthStatus.WARNING,
+            message=f"DXVK not installed in {prefix_path.name}. Recommended for better Windows plugin performance.",
             required=False
         )
+
+    # DLLs present, but check whether overrides make them active
+    if runner_path is not None:
+        import subprocess, os
+        env = dict(os.environ, WINEPREFIX=str(prefix_path))
+        try:
+            result = subprocess.run(
+                [str(runner_path), "reg", "query",
+                 "HKCU\\Software\\Wine\\DllOverrides"],
+                env=env, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0 and "dxgi" in result.stdout and "native" in result.stdout:
+                return HealthCheckResult(
+                    component="DXVK",
+                    status=HealthStatus.OK,
+                    message=f"DXVK installed and active in {prefix_path.name}",
+                    required=False
+                )
+            return HealthCheckResult(
+                component="DXVK",
+                status=HealthStatus.WARNING,
+                message=f"DXVK DLLs present in {prefix_path.name} but not active (missing registry overrides).",
+                required=False
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                component="DXVK",
+                status=HealthStatus.WARNING,
+                message=f"DXVK DLLs present but could not verify activation: {e}",
+                required=False
+            )
 
     return HealthCheckResult(
         component="DXVK",
         status=HealthStatus.WARNING,
-        message=f"DXVK not installed in {prefix_path.name}. Recommended for better Windows plugin performance.",
+        message=f"DXVK DLLs present in {prefix_path.name} (could not verify activation).",
         required=False
     )
 
@@ -293,6 +352,7 @@ def run_full_health_check(for_windows_plugin: bool = False, prefix_path: Path | 
     results.append(check_yabridge())
     results.append(check_realtime_group())
     results.append(check_realtime_kernel())
+    results.append(check_pinned_wine())
 
     if prefix_path:
         results.append(check_dxvk(prefix_path))

@@ -23,8 +23,10 @@ def load_config() -> dict[str, Any]:
 def save_config(config: dict[str, Any]):
     """Save config to file."""
     ensure_config_dir()
+    print(f"DEBUG: Saving config to {CONFIG_FILE}")
     with open(CONFIG_FILE, "wb") as f:
         tomli_w.dump(config, f)
+    print(f"DEBUG: Config file exists: {CONFIG_FILE.exists()}")
 
 def register_prefix(prefix_path: str, runner_name: str, dxvk_installed: bool = False) -> None:
     """Register a Wine prefix."""
@@ -93,3 +95,9 @@ def update_prefix_dxvk(prefix_path: str, dxvk_installed: bool) -> None:
             prefix["dxvk_installed"] = dxvk_installed
             save_config(config)
             return
+
+def ensure_config_dir():
+    """Ensure config directory exists."""
+    print(f"DEBUG: Ensuring config dir at {CONFIG_DIR}")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"DEBUG: Config dir exists: {CONFIG_DIR.exists()}")

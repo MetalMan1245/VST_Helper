@@ -1,3 +1,5 @@
 test-assets
 __pycache__/
 *.egg-info/
+dxvk-2.4/
+dxvk-2.4.tar.gz
