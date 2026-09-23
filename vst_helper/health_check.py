@@ -9,6 +9,40 @@ from dataclasses import dataclass
 from typing import List, Optional
 from enum import Enum
 
+def detect_distro() -> str:
+    """Detect Linux distribution family."""
+    try:
+        with open("/etc/os-release", "r") as f:
+            content = f.read().lower()
+        if "fedora" in content:
+            return "fedora"
+        elif "debian" in content or "ubuntu" in content or "linuxmint" in content:
+            return "debian"
+        else:
+            return "arch"
+    except FileNotFoundError:
+        return "unknown"
+
+def get_install_command(pkg_name: str, distro: str) -> str | None:
+    """Return the appropriate install command for a package."""
+    commands = {
+        "arch": f"sudo pacman -S --noconfirm {pkg_name}",
+        "debian": f"sudo apt install -y {pkg_name}",
+        "fedora": f"sudo dnf install -y {pkg_name}",
+    }
+    return commands.get(distro)
+
+def run_privileged_command(command: str) -> tuple[bool, str]:
+    """Run a command with privilege escalation via pkexec."""
+    from subprocess import run
+    try:
+        result = run(["pkexec", "sh", "-c", command], capture_output=True, text=True, timeout=60)
+        return result.returncode == 0, result.stderr or result.stdout
+    except FileNotFoundError:
+        return False, "pkexec not found"
+    except Exception as e:
+        return False, str(e)
+
 
 class HealthStatus(Enum):
     OK = "ok"
@@ -98,13 +132,30 @@ def check_wine_version(wine_runner: Path, target_version: str = "9.21") -> Healt
 
 def check_yabridge() -> HealthCheckResult:
     """Check if yabridge and yabridgectl are installed."""
-    # Check standard PATH first
     yabridge = shutil.which("yabridge")
     yabridgectl = shutil.which("yabridgectl")
 
-    # Also check common alternate names (some packages install as just 'yabridgectl')
     if not yabridgectl:
-        yabridgectl = shutil.which("yabridgctl")  # typo variant
+        yabridgectl = shutil.which("yabridgctl")
+
+    # Also check common alternate locations
+    if not yabridge:
+        for alt_path in [
+            Path("~/.local/bin").expanduser() / "yabridge",
+            Path("/usr/local/bin") / "yabridge",
+        ]:
+            if alt_path.exists():
+                yabridge = str(alt_path)
+                break
+
+    if not yabridgectl:
+        for alt_path in [
+            Path("~/.local/bin").expanduser() / "yabridgectl",
+            Path("/usr/local/bin") / "yabridgectl",
+        ]:
+            if alt_path.exists():
+                yabridgectl = str(alt_path)
+                break
 
     if yabridge and yabridgectl:
         return HealthCheckResult(
@@ -114,19 +165,19 @@ def check_yabridge() -> HealthCheckResult:
             required=False
         )
 
-    if yabridge:
+    if yabridge and not yabridgectl:
         return HealthCheckResult(
             component="yabridge",
             status=HealthStatus.WARNING,
-            message=f"yabridge found ({yabridge}), but yabridgectl missing. Both required for plugin management.",
+            message=f"yabridge found ({yabridge}), but yabridgectl missing",
             required=False
         )
 
-    if yabridgectl:
+    if yabridgectl and not yabridge:
         return HealthCheckResult(
             component="yabridge",
             status=HealthStatus.WARNING,
-            message=f"yabridgectl found ({yabridgectl}), but yabridge binary missing. Both required.",
+            message=f"yabridgectl found ({yabridgectl}), but yabridge missing",
             required=False
         )
 
@@ -137,34 +188,66 @@ def check_yabridge() -> HealthCheckResult:
         required=False
     )
 
-
 def check_realtime_group() -> HealthCheckResult:
     """Check if current user is in the realtime group."""
+    import grp
+
     current_user = os.environ.get("USER", "")
 
     try:
-        realtime_gid = pwd.getpwnam("realtime").pw_gid
-        with open("/etc/group", "r") as f:
-            for line in f:
-                if line.startswith("realtime:"):
-                    members = line.strip().split(":")[-1].split(",")
-                    if current_user in members:
-                        return HealthCheckResult(
-                            component="Realtime Group",
-                            status=HealthStatus.OK,
-                            message=f"User '{current_user}' is in realtime group",
-                            required=False
-                        )
-    except (KeyError, FileNotFoundError):
-        pass
+        realtime_group = grp.getgrnam("realtime")
+        # Check both gr_mem and primary group ID
+        uid = os.getuid()
+        user_info = pwd.getpwuid(uid)
+
+        if current_user in realtime_group.gr_mem or user_info.pw_gid == realtime_group.gr_gid:
+            return HealthCheckResult(
+                component="Realtime Group",
+                status=HealthStatus.OK,
+                message=f"User '{current_user}' is in realtime group (gid {realtime_group.gr_gid})",
+                required=False
+            )
+        else:
+            return HealthCheckResult(
+                component="Realtime Group",
+                status=HealthStatus.WARNING,
+                message=f"User '{current_user}' is not in realtime group. Low-latency audio may not work correctly.",
+                required=False
+            )
+    except KeyError:
+        return HealthCheckResult(
+            component="Realtime Group",
+            status=HealthStatus.WARNING,
+            message="Realtime group does not exist. Create it: sudo groupadd realtime && sudo usermod -aG realtime $USER",
+            required=False
+        )
+
+def check_dxvk(prefix_path: Path) -> HealthCheckResult:
+    """Check if DXVK is installed in a Wine prefix."""
+    if not prefix_path.exists():
+        return HealthCheckResult(
+            component="DXVK",
+            status=HealthStatus.SKIPPED,
+            message=f"Prefix does not exist: {prefix_path}",
+            required=False
+        )
+
+    dxvk_dll = prefix_path / "drive_c" / "windows" / "system32" / "dxgi.dll"
+
+    if dxvk_dll.exists():
+        return HealthCheckResult(
+            component="DXVK",
+            status=HealthStatus.OK,
+            message=f"DXVK installed in {prefix_path.name}",
+            required=False
+        )
 
     return HealthCheckResult(
-        component="Realtime Group",
+        component="DXVK",
         status=HealthStatus.WARNING,
-        message="User not in realtime group. Low-latency audio may not work correctly.",
+        message=f"DXVK not installed in {prefix_path.name}. Recommended for better Windows plugin performance.",
         required=False
     )
-
 
 def check_realtime_kernel() -> HealthCheckResult:
     """Check if running a realtime/preempt kernel."""
@@ -202,14 +285,16 @@ def check_realtime_kernel() -> HealthCheckResult:
         )
 
 
-def run_full_health_check(for_windows_plugin: bool = False) -> List[HealthCheckResult]:
+def run_full_health_check(for_windows_plugin: bool = False, prefix_path: Path | None = None) -> list[HealthCheckResult]:
     """Run all health checks and return results."""
     results = []
 
-    # Always check these
     results.append(check_wine(required_for_operation=for_windows_plugin))
     results.append(check_yabridge())
     results.append(check_realtime_group())
     results.append(check_realtime_kernel())
+
+    if prefix_path:
+        results.append(check_dxvk(prefix_path))
 
     return results

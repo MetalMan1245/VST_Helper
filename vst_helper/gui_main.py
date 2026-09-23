@@ -15,7 +15,10 @@ from PyQt6.QtWidgets import (
 from .config import Runner
 from .file_detector import FileType, detect_file_type
 from .generators import write_yabridge_toml
-from .health_check import HealthCheckResult, run_full_health_check
+from .health_check import (
+    HealthCheckResult, run_full_health_check, check_wine, check_yabridge,
+    check_dxvk, detect_distro, get_install_command, run_privileged_command,
+)
 from .plugin_installer import (
     add_sync_targets, find_installed_plugins, install_from_installer,
     install_portable, sync_yabridge,
@@ -44,41 +47,6 @@ def resolve_runner() -> Runner | None:
     if heroic:
         return Runner(name="heroic", path=heroic[0])
     return None
-
-def detect_distro() -> str:
-    """Detect Linux distribution family."""
-    try:
-        with open("/etc/os-release", "r") as f:
-            content = f.read().lower()
-        if "fedora" in content:
-            return "fedora"
-        elif "debian" in content or "ubuntu" in content or "linuxmint" in content:
-            return "debian"
-        else:
-            return "arch"  # Includes CachyOS, Manjaro, EndeavourOS
-    except FileNotFoundError:
-        return "unknown"
-
-def get_install_command(pkg_name: str, distro: str) -> str | None:
-    """Return the appropriate install command for a package."""
-    commands = {
-        "arch": f"sudo pacman -S --noconfirm {pkg_name}",
-        "debian": f"sudo apt install -y {pkg_name}",
-        "fedora": f"sudo dnf install -y {pkg_name}",
-    }
-    return commands.get(distro)
-
-def run_privileged_command(command: str) -> tuple[bool, str]:
-    """Run a command with privilege escalation via pkexec (PolicyKit)."""
-    from subprocess import run, PIPE
-    try:
-        result = run(["pkexec", "sh", "-c", command], capture_output=True, text=True, timeout=60)
-        return result.returncode == 0, result.stderr or result.stdout
-    except FileNotFoundError:
-        # pkexec not available, fall back to direct sudo (will fail without TTY)
-        return False, "pkexec not found - cannot escalate privileges"
-    except Exception as e:
-        return False, str(e)
 
 class InstallWorker(QThread):
     progress = pyqtSignal(str)
@@ -147,16 +115,85 @@ class MainWindow(QMainWindow):
         browse_btn.clicked.connect(self._browse)
         layout.addWidget(browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # Stats row
+        stats_frame = QFrame()
+        stats_frame.setStyleSheet("QFrame { background: #2a2a2a; padding: 8px; border-radius: 4px; margin: 10px 0; }")
+        stats_layout = QHBoxLayout(stats_frame)
+
+        stats_label = QLabel("📊 Plugins: 0 installed")
+        stats_label.setStyleSheet("color: #aaa;")
+        stats_layout.addWidget(stats_label)
+
+        stats_layout.addStretch()
+        self.stats_label = stats_label
+        layout.addWidget(stats_frame)
+
         self.log_view = QTextEdit(readOnly=True)
         layout.addWidget(QLabel("Log:"))
         layout.addWidget(self.log_view, stretch=1)
 
+        btn_layout = QHBoxLayout()
+
         self.process_btn = QPushButton("Install")
         self.process_btn.setEnabled(False)
         self.process_btn.clicked.connect(self._process)
-        layout.addWidget(self.process_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        btn_layout.addWidget(self.process_btn)
+
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self._open_settings)
+        btn_layout.addWidget(settings_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
 
         self.setAcceptDrops(True)
+
+    def _open_settings(self):
+        from .settings import SettingsDialog
+        dialog = SettingsDialog(self)
+        dialog.refresh_triggered.connect(self._refresh_stats)
+        dialog.exec()
+
+    def _setup_default_prefix(self):
+        """Create default Wine prefix on first run and register it."""
+        runner = resolve_runner()
+        if runner is None:
+            self._log("No Wine found — prefix creation skipped.")
+            return
+
+        prefix = DEFAULT_PREFIX
+
+        if prefix.exists() and (prefix / "drive_c").exists():
+            self._log(f"Default prefix already exists at {prefix}")
+        else:
+            if prefix.exists():
+                shutil.rmtree(prefix)
+            prefix.mkdir(parents=True, exist_ok=True)
+
+            self._log(f"Creating default prefix at {prefix}...")
+            try:
+                create_prefix(runner, prefix)
+                self._log("Default prefix created successfully.")
+
+                # Register prefix in config
+                from .config_manager import register_prefix
+                register_prefix(str(prefix), runner.name, dxvk_installed=False)
+            except Exception as e:
+                self._log(f"Failed to create prefix: {e}")
+
+        # Check and register DXVK
+        dxvk_exists = (prefix / "drive_c" / "windows" / "system32" / "dxgi.dll").exists()
+        if dxvk_exists:
+            self._log("DXVK detected in prefix.")
+            from .config_manager import update_prefix_dxvk
+            update_prefix_dxvk(str(prefix), True)
+        else:
+            self._log("DXVK not installed. Recommended for better Windows plugin performance.")
+
+    def _refresh_stats(self):
+        from .config_manager import get_total_plugin_count
+        total = get_total_plugin_count()
+        self.stats_label.setText(f"📊 Plugins: {total} installed")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -439,7 +476,6 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
 
 def main() -> int:
-    # Set XDG Desktop Portal BEFORE QApplication creation (matches SC2CampaignLauncher)
     if sys.platform.startswith("linux"):
         os.environ.setdefault("QT_QPA_PLATFORMTHEME", "xdgdesktopportal")
 

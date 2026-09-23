@@ -1,8 +1,6 @@
 # VST Helper
  An easy way to run Windows VST, CLAP, and LV2 audio plugins on Linux.
 
- This repo is currently just a writeup for something I plan to develop in the future.  If this sounds interesting, feel free to give it a star, or an issue report if something architecturally seems useful, or a pull request if you want to do it yourself!
-
 # Goals
 This project is built on the back of yabridge, which is a great wrapper that allows Windows VSTs to run on Linux, however its interface is CLI only, and while other GUIs exist for it, this project aims to automate installation as well, since yabridge requires Wine to work, and itself needs to be installed which is non-trivial for a non-technical user.  This project bridges that gap.
 
@@ -12,6 +10,19 @@ To use it
 3 - Get a Windows plugin .exe or raw .vst3 plugin, run it in the app.
 4 - VST Helper will do everything needed to integrate that plugin so it can be run in your VST hosts like REAPER.
 5 - Maybe install a Windows DAW like FL Studio or Ableton while you're at it...
+
+# Currently planned fixes
+
+- Create default prefix on first launch, check DXVK installation in health check.
+- Fix yabridge grou check, seems to always fail currently
+- Pin Wine 9.21 for use with yabridge
+- Hide Log behind advanced output in settings tab
+- Drag and drop interface for plugins
+- Advanced mode toggle in settings that shows log, allows user to choose prefix location other than defauls, different wine version, etc.
+- Show how many and what installed plugins by default below plugin installation section.  For advanced mod, installed size, prefixes, and a button to show their folder.
+- Way to trigger health check manually in settings
+
+- Browse plugins directly from the application (Linux and Windows)
 
 # Technical Details
 
