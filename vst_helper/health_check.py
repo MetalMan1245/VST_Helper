@@ -61,13 +61,16 @@ class HealthCheckResult:
 
 def check_wine(required_for_operation: bool = False) -> HealthCheckResult:
     """Check if Wine is available (pinned preferred, then fallbacks)."""
-    from .wine_manager import is_pinned_installed, PINNED_VERSION, pinned_wine_binary
+    from .wine_manager import (
+        available_variants, is_variant_installed, wine_binary_path, DEFAULT_VARIANT,
+    )
 
     wine_binaries = []
 
-    # Check pinned app-managed Wine first
-    if is_pinned_installed():
-        wine_binaries.append(("pinned", str(pinned_wine_binary())))
+    # Check app-managed variants first (preferred variant sorts first via dict order)
+    for variant in available_variants():
+        if is_variant_installed(variant):
+            wine_binaries.append((f"variant:{variant}", str(wine_binary_path(variant))))
 
     # Check system Wine
     system_wine = shutil.which("wine")
@@ -87,12 +90,12 @@ def check_wine(required_for_operation: bool = False) -> HealthCheckResult:
         wine_binaries.append(("cachyos", cachyos_wine))
 
     if wine_binaries:
-        # Warn if not using pinned version
-        is_pinned = wine_binaries[0][0] == "pinned"
-        status = HealthStatus.OK if is_pinned else HealthStatus.WARNING
+        # Warn if not using an app-managed variant
+        is_managed = wine_binaries[0][0].startswith("variant:")
+        status = HealthStatus.OK if is_managed else HealthStatus.WARNING
         message = f"Wine found: {wine_binaries[0][0]} ({wine_binaries[0][1]})"
-        if not is_pinned:
-            message += f" (pinned Wine {PINNED_VERSION} recommended)"
+        if not is_managed:
+            message += f" (app-managed {DEFAULT_VARIANT} recommended)"
         return HealthCheckResult(
             component="Wine",
             status=status,
@@ -141,21 +144,21 @@ def check_wine_version(wine_runner: Path, target_version: str = "9.21") -> Healt
         )
 
 def check_pinned_wine() -> HealthCheckResult:
-    """Check if the app-managed Wine 9.21 is installed."""
-    from .wine_manager import is_pinned_installed, PINNED_VERSION, pinned_wine_binary
+    """Check if the default app-managed Wine variant is installed."""
+    from .wine_manager import DEFAULT_VARIANT, is_default_installed
 
-    if is_pinned_installed():
+    if is_default_installed():
         return HealthCheckResult(
             component="Pinned Wine",
             status=HealthStatus.OK,
-            message=f"Wine {PINNED_VERSION} installed (recommended for yabridge)",
+            message=f"{DEFAULT_VARIANT} installed (recommended for yabridge)",
             required=False
         )
 
     return HealthCheckResult(
         component="Pinned Wine",
         status=HealthStatus.WARNING,
-        message=f"Wine {PINNED_VERSION} not installed. Install from Settings → Advanced for consistent yabridge behavior.",
+        message=f"{DEFAULT_VARIANT} not installed. Install via Settings → Wine for consistent yabridge behavior.",
         required=False
     )
 
@@ -355,6 +358,14 @@ def run_full_health_check(for_windows_plugin: bool = False, prefix_path: Path | 
     results.append(check_pinned_wine())
 
     if prefix_path:
-        results.append(check_dxvk(prefix_path))
+        from .wine_manager import is_variant_installed, wine_binary_path
+        try:
+            from .settings import ConfigManager
+            variant = ConfigManager().get_wine_settings().preferred_variant
+            runner_path = (wine_binary_path(variant)
+                           if is_variant_installed(variant) else None)
+        except Exception:
+            runner_path = None
+        results.append(check_dxvk(prefix_path, runner_path=runner_path))
 
     return results

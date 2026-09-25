@@ -1,6 +1,7 @@
 """Minimal REAPER .desktop modification for Wine override."""
 
 from pathlib import Path
+import re
 
 def get_reaper_desktop_path() -> Path | None:
     """Find REAPER's .desktop file with expanded search."""
@@ -69,6 +70,15 @@ def pick_reaper_desktop_fallback() -> Path | None:
 
     return Path(path)
 
+def _strip_existing_wineloader(exec_value: str) -> str:
+    """Remove any existing 'env WINELOADER=...' prefixes from an Exec value."""
+    rest = exec_value
+    while True:
+        match = re.match(r"^env\s+WINELOADER=\S+\s+(.*)$", rest)
+        if not match:
+            return rest
+        rest = match.group(1)
+
 def modify_reaper_exec_with_wine(wine_path: Path) -> tuple[bool, str]:
     """Modify REAPER's .desktop Exec line via pkexec for system locations."""
     reaper_desktop = get_reaper_desktop_path()
@@ -81,7 +91,7 @@ def modify_reaper_exec_with_wine(wine_path: Path) -> tuple[bool, str]:
 
     for line in original.splitlines():
         if line.startswith("Exec="):
-            rest = line.split("=", 1)[1]
+            rest = _strip_existing_wineloader(line.split("=", 1)[1])
             lines.append(f'Exec=env WINELOADER={wine_path} {rest}')
         else:
             lines.append(line)
@@ -113,3 +123,8 @@ def modify_reaper_exec_with_wine(wine_path: Path) -> tuple[bool, str]:
         return False, f"Permission denied: {result.stderr}"
 
     return True, str(reaper_desktop)
+
+def apply_active_variant_to_reaper(wine_manager) -> tuple[bool, str]:
+    """Point REAPER's .desktop Exec at the currently selected Wine variant."""
+    wine_bin = wine_manager.get_active_wine_binary()
+    return modify_reaper_exec_with_wine(wine_bin)

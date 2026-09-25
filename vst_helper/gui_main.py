@@ -24,7 +24,13 @@ from .plugin_installer import (
     install_portable, sync_yabridge,
 )
 from .prefix_manager import create_prefix, shutdown_prefix
-from .health_check import HealthCheckResult, run_full_health_check, check_wine, check_yabridge
+
+from .wine_integration import WineManager
+from .settings import ConfigManager
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QPushButton,
+    QComboBox, QMessageBox, QTextEdit, QHBoxLayout
+)
 
 USER_DIRS = {
     "vst3": Path("~/.vst3").expanduser(),
@@ -38,11 +44,26 @@ DEFAULT_PREFIX = Path("~/.local/share/vst-helper/prefixes/default").expanduser()
 
 FIRST_RUN_FLAG = (Path.home() / ".local" / "share" / "vst-helper" / ".first_launch_done")
 
+_MANAGERS: tuple[ConfigManager, WineManager] | None = None
+
+def get_managers() -> tuple[ConfigManager, WineManager]:
+    """Shared ConfigManager/WineManager singleton for the process."""
+    global _MANAGERS
+    if _MANAGERS is None:
+        config_manager = ConfigManager()
+        _MANAGERS = (config_manager, WineManager(config_manager))
+    return _MANAGERS
+
 def resolve_runner() -> Runner | None:
-    """Pick a Wine: pinned app-managed build, then system, then Heroic."""
-    from .wine_manager import is_pinned_installed, pinned_wine_binary
-    if is_pinned_installed():
-        return Runner(name="pinned", path=pinned_wine_binary())
+    """Pick a Wine: configured app-managed variant, then system, then Heroic."""
+    from .wine_manager import is_variant_installed, wine_binary_path
+    try:
+        _, wine_manager = get_managers()
+        variant = wine_manager.get_current_variant()
+        if is_variant_installed(variant):
+            return Runner(name=f"variant:{variant}", path=wine_binary_path(variant))
+    except Exception:
+        pass
     system = shutil.which("wine")
     if system:
         return Runner(name="system", path=Path(system))
@@ -50,6 +71,104 @@ def resolve_runner() -> Runner | None:
     if heroic:
         return Runner(name="heroic", path=heroic[0])
     return None
+
+class WineVariantDialog(QDialog):
+    """Dialog for selecting and managing Wine variants."""
+
+    def __init__(self, parent=None, wine_manager: WineManager = None):
+        super().__init__(parent)
+        self.wine_manager = wine_manager
+        self.setWindowTitle("Wine Version Management")
+        self.setMinimumWidth(500)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Current status
+        self.status_label = QLabel("Checking installed Wine versions...")
+        layout.addWidget(self.status_label)
+
+        # Variant selection
+        select_layout = QHBoxLayout()
+        select_layout.addWidget(QLabel("Select Wine variant:"))
+
+        self.variant_combo = QComboBox()
+        from .wine_manager import available_variants
+        self.variant_combo.addItems(available_variants())
+        select_layout.addWidget(self.variant_combo)
+
+        # Set current variant as default
+        current = self.wine_manager.get_current_variant()
+        idx = self.variant_combo.findText(current)
+        if idx >= 0:
+            self.variant_combo.setCurrentIndex(idx)
+
+        select_layout.addWidget(QPushButton("Switch", clicked=self.on_switch))
+        layout.addLayout(select_layout)
+
+        # Actions
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(QPushButton("Install Missing", clicked=self.install_missing))
+        btn_layout.addWidget(QPushButton("Refresh Status", clicked=self.refresh_status))
+        layout.addLayout(btn_layout)
+
+        # Log/output
+        self.output_text = QTextEdit(readOnly=True)
+        self.output_text.setMaximumHeight(150)
+        layout.addWidget(QLabel("Output:"))
+        layout.addWidget(self.output_text)
+
+        self.refresh_status()
+
+    def log(self, msg: str):
+        self.output_text.append(msg)
+
+    def refresh_status(self):
+        """Show which variants are installed."""
+        from .wine_manager import available_variants, list_installed
+
+        self.status_label.setText("Status: Loading...")
+
+        current = self.wine_manager.get_active_wine_binary()
+        installed = list_installed()
+
+        lines = ["Installed variants:", ""]
+        for variant in available_variants():
+            marker = "[ACTIVE]" if variant == self.wine_manager.get_current_variant() else ""
+            icon = "✓" if variant in installed else "✗"
+            lines.append(f"  {icon} {variant} {marker}")
+
+        lines.append("")
+        lines.append(f"Active Wine binary: {current}")
+        self.status_label.setText("\n".join(lines))
+
+    def on_switch(self):
+        variant = self.variant_combo.currentText()
+        self.log(f"Switching to {variant}...")
+
+        try:
+            wine_bin = self.wine_manager.switch_variant(variant)
+            self.log(f"Success: {wine_bin}")
+            QMessageBox.information(self, "Success", f"Switched to {variant}")
+            self.refresh_status()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            self.log(f"Error: {e}")
+
+    def install_missing(self):
+        """Install the currently selected variant."""
+        variant = self.variant_combo.currentText()
+        self.log(f"Installing {variant}...")
+
+        try:
+            wine_bin = self.wine_manager.install_variant(variant)
+            self.log(f"Installed: {wine_bin}")
+            QMessageBox.information(self, "Success", f"{variant} installed")
+            self.refresh_status()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            self.log(f"Error: {e}")
 
 class InstallWorker(QThread):
     progress = pyqtSignal(str)
@@ -96,6 +215,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.current_file: Path | None = None
         self.worker: InstallWorker | None = None
+        _, self.wine_manager = get_managers()
         self.setWindowTitle("VST Helper")
         self.setMinimumSize(700, 520)
         self._build_ui()
@@ -153,7 +273,7 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self):
         from .settings import SettingsDialog
-        dialog = SettingsDialog(self)
+        dialog = SettingsDialog(self, wine_manager=self.wine_manager)
         dialog.refresh_triggered.connect(self._refresh_stats)
         dialog.exec()
 
