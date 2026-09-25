@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .config import Plugin, Prefix, Runner
 from .prefix_manager import PrefixOperationError
+from .config_manager import register_plugin, get_plugins_by_prefix
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class InstallError(PrefixOperationError):
 # Windows-side canonical plugin directories inside drive_c
 FORMAT_DIRS = {
     "vst3": "Program Files/Common Files/VST3",
-    "vst2": "Program Files/Steinberg/VstPlugins",
+    "vst2": "Program Files/Common Files/VST2",
     "clap": "Program Files/Common Files/CLAP",
 }
 
@@ -83,6 +84,15 @@ def install_portable(runner: Runner, prefix_path: Path, source: Path,
         shutil.copy2(source, dest)
 
     log.info("Installed portable plugin: %s -> %s", source, dest)
+
+    # Register the plugin
+    register_plugin(
+        str(prefix_path),
+        source.stem,
+        fmt,
+        fmt
+    )
+
     return dest
 
 def install_from_installer(runner: Runner, prefix_path: Path,
@@ -104,6 +114,17 @@ def install_from_installer(runner: Runner, prefix_path: Path,
     result = subprocess.run(argv, env=env)
     if result.returncode != 0:
         log.warning("Installer exited with code %d", result.returncode)
+
+    # Enumerate and register newly installed plugins
+    found = find_installed_plugins(prefix_path, "vst3")  # Installers typically drop VST3
+    for plugin_path in found:
+        register_plugin(
+            str(prefix_path),
+            plugin_path.stem,
+            "vst3",
+            "vst3"
+        )
+
     return result.returncode
 
 def find_installed_plugins(prefix_path: Path, fmt: str) -> list[Path]:

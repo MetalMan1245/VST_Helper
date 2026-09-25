@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 CONFIG_DIR = Path.home() / ".config" / "vst-helper"
-CONFIG_FILE = CONFIG_DIR / "config.toml"
+CONFIG_FILE = CONFIG_DIR / "vst_helper.toml"  # Match config_manager.py
 
 @dataclass
 class WineSettings:

@@ -20,21 +20,34 @@ def load_config() -> dict[str, Any]:
             return tomllib.load(f)
     return {"prefixes": [], "plugins": []}
 
+def _filter_none(obj):
+    """Recursively remove None values (tomli_w cannot serialize them)."""
+    if isinstance(obj, dict):
+        return {
+            k: _filter_none(v)
+            for k, v in obj.items()
+            if v is not None
+        }
+    elif isinstance(obj, (list, tuple)):
+        result = [_filter_none(item) for item in obj if item is not None]
+        return result
+    else:
+        return obj
+
 def save_config(config: dict[str, Any]):
     """Save config to file."""
     ensure_config_dir()
-    print(f"DEBUG: Saving config to {CONFIG_FILE}")
+    filtered = _filter_none(config)
     with open(CONFIG_FILE, "wb") as f:
-        tomli_w.dump(config, f)
-    print(f"DEBUG: Config file exists: {CONFIG_FILE.exists()}")
+        tomli_w.dump(filtered, f)
 
 def register_prefix(prefix_path: str, runner_name: str, dxvk_installed: bool = False) -> None:
     """Register a Wine prefix."""
     config = load_config()
 
-    existing = [p for p in config["prefixes"] if p["path"] == prefix_path]
+    existing = [p for p in config.get("prefixes", []) if p["path"] == prefix_path]
     if not existing:
-        config["prefixes"].append({
+        config.setdefault("prefixes", []).append({
             "path": prefix_path,
             "runner": runner_name,
             "dxvk_installed": dxvk_installed
@@ -51,10 +64,10 @@ def register_plugin(prefix_path: str, plugin_name: str, plugin_type: str, kind: 
     """Register an installed plugin."""
     config = load_config()
 
-    existing = [p for p in config["plugins"]
+    existing = [p for p in config.get("plugins", [])
                 if p["prefix"] == prefix_path and p["name"] == plugin_name]
     if not existing:
-        config["plugins"].append({
+        config.setdefault("plugins", []).append({
             "prefix": prefix_path,
             "name": plugin_name,
             "type": plugin_type,

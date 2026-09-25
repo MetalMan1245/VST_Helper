@@ -40,6 +40,13 @@ USER_DIRS = {
 
 LINUX_TYPES = {FileType.LINUX_VST3, FileType.LINUX_CLAP, FileType.LINUX_LV2}
 
+WINDOWS_KIND = {
+    FileType.WINDOWS_VST3: "vst3",
+    FileType.WINDOWS_DLL: "vst2",
+    FileType.WINDOWS_CLAP: "clap",
+    FileType.WINDOWS_EXE: "vst3",  # installers get re-detected by find_installed_plugins
+}
+
 DEFAULT_PREFIX = Path("~/.local/share/vst-helper/prefixes/default").expanduser()
 
 FIRST_RUN_FLAG = (Path.home() / ".local" / "share" / "vst-helper" / ".first_launch_done")
@@ -174,6 +181,7 @@ class InstallWorker(QThread):
     progress = pyqtSignal(str)
     done = pyqtSignal(bool, str)
     failed = pyqtSignal(str)
+    refresh_requested = pyqtSignal()
 
     def __init__(self, runner: Runner, prefix: Path, target: Path,
                  kind: str, is_installer: bool):
@@ -201,6 +209,7 @@ class InstallWorker(QThread):
             sync_yabridge(self.runner)
 
             self.done.emit(True, f"Installed {len(found)} plugin(s); yabridge synced.")
+            self.refresh_requested.emit()
         except Exception as exc:  # surfaced to the user, never silently dropped
             self.failed.emit(f"{type(exc).__name__}: {exc}")
         finally:
@@ -215,10 +224,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.current_file: Path | None = None
         self.worker: InstallWorker | None = None
-        _, self.wine_manager = get_managers()
         self.setWindowTitle("VST Helper")
         self.setMinimumSize(700, 520)
         self._build_ui()
+        _, self.wine_manager = get_managers()
+        self._setup_default_prefix()
+        self._refresh_stats()  # initial stats load from config file
 
         # First-run onboarding
         if not FIRST_RUN_FLAG.exists():
@@ -238,18 +249,32 @@ class MainWindow(QMainWindow):
         browse_btn.clicked.connect(self._browse)
         layout.addWidget(browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Stats row
+        # Stats row — shows count only
         stats_frame = QFrame()
         stats_frame.setStyleSheet("QFrame { background: #2a2a2a; padding: 8px; border-radius: 4px; margin: 10px 0; }")
         stats_layout = QHBoxLayout(stats_frame)
 
-        stats_label = QLabel("📊 Plugins: 0 installed")
-        stats_label.setStyleSheet("color: #aaa;")
-        stats_layout.addWidget(stats_label)
+        self.count_label = QLabel("📊 Plugins: 0 installed")
+        self.count_label.setStyleSheet("color: #aaa;")
+        stats_layout.addWidget(self.count_label)
 
         stats_layout.addStretch()
-        self.stats_label = stats_label
         layout.addWidget(stats_frame)
+
+        # Plugin list — scrollable, shows each plugin name/type
+        layout.addWidget(QLabel("Installed Plugins:"))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumHeight(150)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.plugin_list_widget = QWidget()
+        self.plugin_list_layout = QVBoxLayout(self.plugin_list_widget)
+        self.plugin_list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        scroll.setWidget(self.plugin_list_widget)
+        layout.addWidget(scroll, stretch=1)
+
+        self.plugin_labels = []  # Track created labels for cleanup
 
         self.log_view = QTextEdit(readOnly=True)
         layout.addWidget(QLabel("Log:"))
@@ -301,6 +326,7 @@ class MainWindow(QMainWindow):
                 # Register prefix in config
                 from .config_manager import register_prefix
                 register_prefix(str(prefix), runner.name, dxvk_installed=False)
+                self._log(f"Prefix registered in config.")
             except Exception as e:
                 self._log(f"Failed to create prefix: {e}")
 
@@ -314,9 +340,38 @@ class MainWindow(QMainWindow):
             self._log("DXVK not installed. Recommended for better Windows plugin performance.")
 
     def _refresh_stats(self):
-        from .config_manager import get_total_plugin_count
+        from .config_manager import get_total_plugin_count, get_plugins_by_prefix
         total = get_total_plugin_count()
-        self.stats_label.setText(f"📊 Plugins: {total} installed")
+        self.count_label.setText(f"📊 Plugins: {total} installed")
+
+        # Clear existing plugin labels
+        for label in self.plugin_labels:
+            self.plugin_list_layout.removeWidget(label)
+            label.deleteLater()
+        self.plugin_labels.clear()
+
+        # Get all plugins across all prefixes
+        from .config_manager import load_config
+        config = load_config()
+        plugins = config.get("plugins", [])
+
+        if not plugins:
+            empty_label = QLabel("No plugins installed yet.")
+            empty_label.setStyleSheet("color: #888; font-style: italic;")
+            self.plugin_list_layout.addWidget(empty_label)
+            self.plugin_labels.append(empty_label)
+        else:
+            for plugin in plugins:
+                name = plugin.get("name", "Unknown")
+                fmt = plugin.get("type", "unknown")
+                prefix = plugin.get("prefix", "").split("/")[-1]  # Show last path component
+                line = f"• {name} ({fmt.upper()})"
+                label = QLabel(line)
+                label.setStyleSheet("padding: 4px 0; color: #ccc;")
+                self.plugin_list_layout.addWidget(label)
+                self.plugin_labels.append(label)
+
+        self._log(f"Stats refreshed: {total} plugins registered")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -329,8 +384,6 @@ class MainWindow(QMainWindow):
 
     def _log(self, msg: str):
         self.log_view.append(msg)
-        if not FIRST_RUN_FLAG.exists():
-            QTimer.singleShot(200, self._show_onboarding)
 
     def _show_onboarding(self):
         print(f"DEBUG: FIRST_RUN_FLAG={FIRST_RUN_FLAG} exists={FIRST_RUN_FLAG.exists()}")
@@ -566,13 +619,14 @@ class MainWindow(QMainWindow):
                 shutil.rmtree(prefix)
             else:
                 self._log(f"Using existing prefix at {prefix}")
-                kind = "vst3"
+                kind = WINDOWS_KIND.get(ftype, "vst3")
                 self.worker = InstallWorker(
                     runner, prefix, self.current_file, kind,
                     is_installer=(ftype == FileType.WINDOWS_EXE))
                 self.worker.progress.connect(self._log)
                 self.worker.done.connect(lambda ok, msg: self._log(f"DONE: {msg}"))
                 self.worker.failed.connect(self._log)
+                self.worker.refresh_requested.connect(self._refresh_stats)  # Add this line
                 self.worker.start()
                 self.process_btn.setEnabled(False)
                 self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
@@ -593,16 +647,22 @@ class MainWindow(QMainWindow):
                 f"Failed to create Wine prefix at {prefix}:\n{e}\n\nPlease check your Wine installation and try again.")
             return
 
-        kind = "vst3"
+        kind = WINDOWS_KIND.get(ftype, "vst3")
         self.worker = InstallWorker(
             runner, prefix, self.current_file, kind,
             is_installer=(ftype == FileType.WINDOWS_EXE))
         self.worker.progress.connect(self._log)
         self.worker.done.connect(lambda ok, msg: self._log(f"DONE: {msg}"))
         self.worker.failed.connect(self._log)
+        self.worker.refresh_requested.connect(self._refresh_stats)
         self.worker.start()
         self.process_btn.setEnabled(False)
         self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
+
+    def focusInEvent(self, event):
+        """Refresh stats when window comes to front."""
+        self._refresh_stats()
+        super().focusInEvent(event)
 
 def main() -> int:
     if sys.platform.startswith("linux"):
