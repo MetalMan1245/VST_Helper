@@ -115,15 +115,28 @@ def install_from_installer(runner: Runner, prefix_path: Path,
     if result.returncode != 0:
         log.warning("Installer exited with code %d", result.returncode)
 
-    # Enumerate and register newly installed plugins
-    found = find_installed_plugins(prefix_path, "vst3")  # Installers typically drop VST3
-    for plugin_path in found:
+    # Scan all possible directories and detect format from file extension
+    all_formats = ["vst2", "vst3", "clap"]
+    all_plugins: list[tuple[Path, str]] = []  # (path, format)
+    seen_resolved = set()
+
+    for fmt in all_formats:
+        found = find_installed_plugins(prefix_path, fmt)
+        for plugin_path in found:
+            resolved = plugin_path.resolve()
+            if resolved not in seen_resolved:
+                seen_resolved.add(resolved)
+                all_plugins.append((plugin_path, fmt))
+
+    # Register all discovered plugins
+    for plugin_path, fmt in all_plugins:
         register_plugin(
             str(prefix_path),
             plugin_path.stem,
-            "vst3",
-            "vst3"
+            fmt,
+            fmt
         )
+        log.info(f"Registered: {plugin_path.stem} ({fmt.upper()})")
 
     return result.returncode
 
@@ -132,11 +145,48 @@ def find_installed_plugins(prefix_path: Path, fmt: str) -> list[Path]:
     installer actually dropped, and as the input list for sync."""
     if fmt not in FORMAT_DIRS:
         raise InstallError(f"Unknown plugin format '{fmt}'")
-    fmt_dir = prefix_path / "drive_c" / FORMAT_DIRS[fmt]
-    if not fmt_dir.is_dir():
-        return []
+
+    # Define all possible directories for each format (some installers use legacy paths)
+    if fmt == "vst2":
+        search_dirs = [
+            prefix_path / "drive_c" / "Program Files" / "VSTPlugins",
+            prefix_path / "drive_c" / "Program Files (x86)" / "VSTPlugins",
+            prefix_path / "drive_c" / "Program Files" / "Steinberg" / "VSTPlugins",
+            prefix_path / "drive_c" / "Program Files (x86)" / "Steinberg" / "VSTPlugins",
+            prefix_path / "drive_c" / "Program Files" / "Common Files" / "VST2",
+            prefix_path / "drive_c" / "Program Files (x86)" / "Common Files" / "VST2",
+        ]
+    elif fmt == "vst3":
+        search_dirs = [
+            prefix_path / "drive_c" / "Program Files" / "Common Files" / "VST3",
+            prefix_path / "drive_c" / "Program Files (x86)" / "Common Files" / "VST3",
+        ]
+    elif fmt == "clap":
+        search_dirs = [
+            prefix_path / "drive_c" / "Program Files" / "Common Files" / "CLAP",
+            prefix_path / "drive_c" / "Program Files (x86)" / "Common Files" / "CLAP",
+        ]
+    else:
+        search_dirs = []
+
+    # Scan all directories and collect all matching plugins
+    plugins = []
     pattern = "*.vst3" if fmt == "vst3" else "*.clap" if fmt == "clap" else "*.dll"
-    return sorted(fmt_dir.glob(pattern))
+
+    for search_dir in search_dirs:
+        if search_dir.is_dir():
+            plugins.extend(search_dir.glob(pattern))
+
+    # Deduplicate by resolved path and sort
+    seen = set()
+    unique_plugins = []
+    for plugin in plugins:
+        resolved = plugin.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique_plugins.append(plugin)
+
+    return sorted(unique_plugins)
 
 def add_sync_targets(runner: Runner, paths: list[Path],
                      timeout: int = 120) -> None:
@@ -151,9 +201,6 @@ def add_sync_targets(runner: Runner, paths: list[Path],
 
     argv, env = runner.prepare([], prefix=None)  # env only: loader + PATH
     argv[0] = shutil.which("yabridgectl")        # type: ignore[assignment]
-    # Expand prefix roots to their canonical plugin directories — handing
-    # yabridgectl a whole prefix makes sync index drive_c recursively
-    # (100k+ files). Adopted prefixes pass their plugin dirs directly.
     dirs: set[Path] = set()
     for path in paths:
         if (path / "drive_c").is_dir():
@@ -164,6 +211,17 @@ def add_sync_targets(runner: Runner, paths: list[Path],
             for d in FORMAT_DIRS.values():
                 (base / d).mkdir(parents=True, exist_ok=True)
             dirs.update(base / d for d in FORMAT_DIRS.values())
+
+            # ALSO register legacy VST2 directories (some installers use these)
+            legacy_vst2_dirs = [
+                base / "Program Files" / "VSTPlugins",
+                base / "Program Files (x86)" / "VSTPlugins",
+                base / "Program Files" / "Steinberg" / "VSTPlugins",
+                base / "Program Files (x86)" / "Steinberg" / "VSTPlugins",
+            ]
+            for legacy_dir in legacy_vst2_dirs:
+                legacy_dir.mkdir(parents=True, exist_ok=True)
+                dirs.add(legacy_dir)
         else:
             dirs.add(path)
     for path in sorted(dirs):

@@ -361,17 +361,27 @@ class MainWindow(QMainWindow):
             self.plugin_list_layout.addWidget(empty_label)
             self.plugin_labels.append(empty_label)
         else:
+            # Group plugins by name to show multiple formats together
+            plugin_groups: dict[str, dict] = {}  # name -> {prefix, formats}
             for plugin in plugins:
                 name = plugin.get("name", "Unknown")
                 fmt = plugin.get("type", "unknown")
-                prefix = plugin.get("prefix", "").split("/")[-1]  # Show last path component
-                line = f"• {name} ({fmt.upper()})"
+                prefix = plugin.get("prefix", "").split("/")[-1]
+
+                if name not in plugin_groups:
+                    plugin_groups[name] = {"prefix": prefix, "formats": set()}
+                plugin_groups[name]["formats"].add(fmt.upper())
+
+            # Display grouped plugins
+            for name, data in sorted(plugin_groups.items()):
+                formats = ", ".join(sorted(data["formats"]))
+                line = f"• {name} ({formats})"
                 label = QLabel(line)
                 label.setStyleSheet("padding: 4px 0; color: #ccc;")
                 self.plugin_list_layout.addWidget(label)
                 self.plugin_labels.append(label)
 
-        self._log(f"Stats refreshed: {total} plugins registered")
+        self._log(f"Stats refreshed: {total} plugin(s) registered")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

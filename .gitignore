@@ -1,3 +1,5 @@
+*venv
+*.venv
 test-assets
 __pycache__/
 *.egg-info/
