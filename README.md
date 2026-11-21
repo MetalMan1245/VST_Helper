@@ -54,3 +54,13 @@ python -m venv .venv
 source .venv/bin/activate.fish # (for fish Terminals)
 source .venv/bin/activate 
 python -m pytest -v
+
+# Dev
+ - Plugin display does not check files on disk, still shows plugins that have been deleted manually.
+ - Create default prefix on first launch, check DXVK installation in health check.
+ - Fix yabridge grou check, seems to always fail currently
+-- Pin Wine 9.21 for use with yabridge
+ - Hide Log behind advanced output in settings tab
+ - Drag and drop interface for plugins
+ - Advanced mode toggle in settings that shows log, allows user to choose prefix location other than defauls, different wine version, etc.
+
